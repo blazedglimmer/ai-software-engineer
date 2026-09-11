@@ -95,16 +95,7 @@ async function main() {
 
   const finalResponse = await ai.models.generateContent({
     model: 'gemini-3.8-flash',
-
     contents: finalContents,
-
-    config: {
-      tools: [
-        {
-          functionDeclarations: [weatherTool],
-        },
-      ],
-    },
   });
   console.log('\nFinal Answer:');
   console.log(finalResponse.text);
