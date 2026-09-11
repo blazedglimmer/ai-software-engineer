@@ -60,7 +60,11 @@ async function main() {
     return;
   }
 
-  const city = functionCall.args?.city as string;
+  const city = functionCall.args?.city;
+
+  if (typeof city !== 'string') {
+    throw new Error('Invalid city argument');
+  }
 
   weather = getWeather(city);
 
