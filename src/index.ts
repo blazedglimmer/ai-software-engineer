@@ -1,49 +1,43 @@
 import 'dotenv/config';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { Content } from '@google/genai';
-import { getWeather } from './tools/weather.js';
+import { toolDeclarations, toolRegistry } from './tools/registry.js';
 
 const ai = new GoogleGenAI({
   apiKey: process.env['GEMINI_API_KEY']!,
 });
 
 async function main() {
-  const weatherTool = {
-    name: 'get_weather',
-    description: 'Get the current weather for a specific city.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        city: {
-          type: Type.STRING,
-          description: 'The city to get the weather for.',
-        },
-      },
-      required: ['city'],
-    },
-  };
-  const userMessage = 'What is the weather in Mumbai?';
+  const userMessage = 'What is 25 + 48?';
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.8-flash',
+    model: 'gemini-3.6-flash',
     contents: userMessage,
     config: {
       tools: [
         {
-          functionDeclarations: [weatherTool],
+          functionDeclarations: toolDeclarations,
         },
       ],
     },
   });
   const functionCall = response.functionCalls?.[0];
-  const modelContent = response.candidates?.[0]?.content;
-  let weather!: ReturnType<typeof getWeather>;
 
-  console.log(functionCall);
+  const modelContent = response.candidates?.[0]?.content;
+
+  console.log({ functionCall });
   if (!functionCall) {
     console.log('Gemini did not request a tool.');
 
     console.log(response.text);
+
+    return;
+  }
+
+  const functionName = functionCall.name;
+
+  if (!functionName) {
+    console.log('Gemini returned a function call without a tool name.');
 
     return;
   }
@@ -54,21 +48,18 @@ async function main() {
     return;
   }
 
-  if (functionCall.name !== 'get_weather') {
-    console.log(`Gemini requested an unknown tool: ${functionCall.name}`);
+  const tool = toolRegistry[functionName as keyof typeof toolRegistry];
+  if (!tool) {
+    console.log(`Unknown tool requested: ${functionName}`);
 
     return;
   }
 
-  const city = functionCall.args?.city;
+  const result = (tool as (args: Record<string, unknown>) => unknown)(
+    functionCall.args ?? {}
+  );
 
-  if (typeof city !== 'string') {
-    throw new Error('Invalid city argument');
-  }
-
-  weather = getWeather(city);
-
-  console.log(weather);
+  console.log({ result, modelContent });
 
   const finalContents: Content[] = [
     {
@@ -87,9 +78,9 @@ async function main() {
       parts: [
         {
           functionResponse: {
-            name: functionCall.name,
+            name: functionName,
             response: {
-              result: weather,
+              result,
             },
           },
         },
@@ -98,7 +89,7 @@ async function main() {
   ];
 
   const finalResponse = await ai.models.generateContent({
-    model: 'gemini-3.8-flash',
+    model: 'gemini-3.6-flash',
     contents: finalContents,
   });
   console.log('\nFinal Answer:');
