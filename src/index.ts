@@ -8,7 +8,8 @@ const ai = new GoogleGenAI({
 });
 
 async function main() {
-  const userMessage = 'What is 25 × 48?';
+  const userMessage =
+    'What is the weather in mumbai right now? And What is 25 × 48?';
   const contents: Content[] = [
     {
       role: 'user',
@@ -32,6 +33,9 @@ async function main() {
         ],
       },
     });
+    // console.dir(response, {
+    //   depth: null,
+    // });
 
     const { functionCalls } = response;
     console.log({ functionCalls });
