@@ -1,7 +1,9 @@
 import { GoogleGenAI } from '@google/genai';
 import type { Content } from '@google/genai';
 
-import { toolDeclarations, toolRegistry } from '../tools/registry.js';
+import { toolDeclarations } from '../tools/registry.js';
+import { toolRegistry } from '../tools/index.js';
+import { ToolExecutor } from '../tools/tool-executor.js';
 
 export class Agent {
   private readonly ai: GoogleGenAI;
@@ -9,6 +11,8 @@ export class Agent {
   private readonly model: string;
 
   private readonly maxIterations: number;
+
+  private readonly toolExecutor: ToolExecutor;
 
   constructor({
     apiKey,
@@ -26,6 +30,8 @@ export class Agent {
     this.model = model;
 
     this.maxIterations = maxIterations;
+
+    this.toolExecutor = new ToolExecutor(toolRegistry);
   }
 
   async run(userMessage: string): Promise<string | undefined> {
@@ -58,7 +64,13 @@ export class Agent {
       // });
 
       const { functionCalls } = response;
-      console.log({ 'function call': functionCalls });
+      // console.log({ 'function call': functionCalls });
+      console.dir(
+        { 'Function calls': functionCalls },
+        {
+          depth: null,
+        }
+      );
       if (!functionCalls || functionCalls.length === 0) {
         return response.text || '';
       }
@@ -80,26 +92,10 @@ export class Agent {
           continue;
         }
 
-        const tool = toolRegistry[functionName as keyof typeof toolRegistry];
-
-        if (!tool) {
-          console.log(`Unknown tool requested: ${functionName}`);
-          continue;
-        }
-        console.log(`\nCalling tool: ${functionName}`);
-        console.log('Arguments:', functionCall.args);
-
-        let result: unknown;
-        try {
-          result = (tool as (args: Record<string, unknown>) => unknown)(
-            functionCall.args ?? {}
-          );
-        } catch (error) {
-          result = {
-            error:
-              error instanceof Error ? error.message : 'Unknown tool error',
-          };
-        }
+        const result = await this.toolExecutor.execute(
+          functionName,
+          functionCall.args ?? {}
+        );
 
         console.log({ result, modelContent });
 
