@@ -5,6 +5,8 @@ import { toolDeclarations } from '../tools/registry.js';
 import { toolRegistry } from '../tools/index.js';
 import { ToolExecutor } from '../tools/tool-executor.js';
 
+import type { AgentState } from './state.js';
+
 export class Agent {
   private readonly ai: GoogleGenAI;
 
@@ -35,22 +37,31 @@ export class Agent {
   }
 
   async run(userMessage: string): Promise<string | undefined> {
-    const contents: Content[] = [
-      {
-        role: 'user',
-        parts: [
-          {
-            text: userMessage,
-          },
-        ],
-      },
-    ];
+    const state: AgentState = {
+      userMessage,
 
-    for (let iteration = 1; iteration <= this.maxIterations; iteration++) {
-      console.log(`\n--- Agent iteration ${iteration} ---`);
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: userMessage }],
+        },
+      ],
+
+      iteration: 0,
+
+      toolExecutions: [],
+
+      status: 'running',
+    };
+
+    while (state.iteration < this.maxIterations) {
+      state.iteration++;
+
+      console.log(`\n--- Agent iteration ${state.iteration} ---`);
+
       const response = await this.ai.models.generateContent({
         model: this.model,
-        contents,
+        contents: state.contents,
         config: {
           tools: [
             {
@@ -64,15 +75,19 @@ export class Agent {
       // });
 
       const { functionCalls } = response;
-      // console.log({ 'function call': functionCalls });
-      console.dir(
-        { 'Function calls': functionCalls },
-        {
-          depth: null,
-        }
-      );
+
+      // console.dir(
+      //   { 'Function calls': functionCalls },
+      //   {
+      //     depth: null,
+      //   }
+      // );
       if (!functionCalls || functionCalls.length === 0) {
-        return response.text || '';
+        state.status = 'completed';
+
+        state.finalAnswer = response.text || '';
+
+        return state.finalAnswer;
       }
 
       const modelContent = response.candidates?.[0]?.content;
@@ -81,7 +96,7 @@ export class Agent {
           'Gemini returned function calls without model content.'
         );
       }
-      contents.push(modelContent);
+      state.contents.push(modelContent);
 
       const functionResponseParts = [];
 
@@ -97,7 +112,11 @@ export class Agent {
           functionCall.args ?? {}
         );
 
-        console.log({ result, modelContent });
+        state.toolExecutions.push({
+          toolName: functionName,
+          args: functionCall.args ?? {},
+          result,
+        });
 
         functionResponseParts.push({
           functionResponse: {
@@ -109,12 +128,17 @@ export class Agent {
         });
       }
 
-      contents.push({
+      state.contents.push({
         role: 'user',
         parts: functionResponseParts,
       });
+      // console.log('\nAgent State:', JSON.stringify(state, null, 2));
     }
 
-    throw new Error(`Agent stopped after ${this.maxIterations} iterations.`);
+    state.status = 'failed';
+
+    state.error = `Agent stopped after ${this.maxIterations} iterations.`;
+
+    throw new Error(state.error);
   }
 }
