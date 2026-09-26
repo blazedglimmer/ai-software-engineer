@@ -1,11 +1,9 @@
 import { GoogleGenAI } from '@google/genai';
-import type { Content } from '@google/genai';
+import { StateStore } from '../persistence/state-store.js';
 
 import { toolDeclarations } from '../tools/registry.js';
 import { toolRegistry } from '../tools/index.js';
 import { ToolExecutor } from '../tools/tool-executor.js';
-
-import type { AgentState } from './state.js';
 
 export class Agent {
   private readonly ai: GoogleGenAI;
@@ -14,16 +12,20 @@ export class Agent {
 
   private readonly maxIterations: number;
 
+  private readonly stateStore: StateStore;
+
   private readonly toolExecutor: ToolExecutor;
 
   constructor({
     apiKey,
     model,
     maxIterations = 5,
+    stateStore,
   }: {
     apiKey: string;
     model: string;
     maxIterations?: number;
+    stateStore: StateStore;
   }) {
     this.ai = new GoogleGenAI({
       apiKey,
@@ -33,29 +35,38 @@ export class Agent {
 
     this.maxIterations = maxIterations;
 
+    this.stateStore = stateStore;
+
     this.toolExecutor = new ToolExecutor(toolRegistry);
   }
 
-  async run(userMessage: string): Promise<string | undefined> {
-    const state: AgentState = {
-      userMessage,
+  async run(runId: string, userMessage: string): Promise<string | undefined> {
+    let state = this.stateStore.load(runId);
 
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: userMessage }],
-        },
-      ],
+    if (!state) {
+      state = {
+        userMessage,
 
-      iteration: 0,
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: userMessage }],
+          },
+        ],
 
-      toolExecutions: [],
+        iteration: 0,
 
-      status: 'running',
-    };
+        toolExecutions: [],
 
+        status: 'running',
+      };
+
+      this.stateStore.save(runId, state);
+    }
     while (state.iteration < this.maxIterations) {
       state.iteration++;
+
+      this.stateStore.save(runId, state);
 
       console.log(`\n--- Agent iteration ${state.iteration} ---`);
 
@@ -87,6 +98,8 @@ export class Agent {
 
         state.finalAnswer = response.text || '';
 
+        this.stateStore.save(runId, state);
+
         return state.finalAnswer;
       }
 
@@ -117,6 +130,8 @@ export class Agent {
           args: functionCall.args ?? {},
           result,
         });
+
+        this.stateStore.save(runId, state);
 
         functionResponseParts.push({
           functionResponse: {
